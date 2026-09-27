@@ -134,16 +134,13 @@ android {
         }
         getByName("release") {
             manifestPlaceholders["logScreenExported"] = "false"
-            // Deliberately unminified: R8 would roughly halve the APK
-            // (~13 vs ~29 MB, mostly BouncyCastle dex), but obfuscated
-            // crash traces need per-release mapping.txt juggling and we
-            // don't care about size below ~50 MB. Debugging beats
-            // megabytes. If this is ever flipped on, proguard-rules.pro
-            // already carries the keep rules R8 needs (zstd-jni JNI,
-            // line-number attributes). Native libs also ship unstripped
-            // — see packaging {} below.
-            isMinifyEnabled = false
-            isShrinkResources = false
+            // R8 shrinks and optimizes (F-Droid review asks for it; ~13
+            // vs ~29 MB, mostly BouncyCastle dex) but proguard-rules.pro
+            // turns obfuscation off, so crash traces stay readable
+            // without mapping.txt. Native libs still ship unstripped —
+            // see packaging {} below.
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
@@ -264,8 +261,7 @@ android {
             // AGP strips jniLibs by default; keep symbol tables instead
             // so debuggerd emits symbolized native tombstones straight
             // from the device — no hunting for the matching unstripped
-            // artifact. Same debugging-beats-megabytes call as the
-            // unminified release block above.
+            // artifact. Debugging beats megabytes here.
             keepDebugSymbols.add("**/*.so")
         }
         resources {

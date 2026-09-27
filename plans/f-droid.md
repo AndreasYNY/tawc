@@ -185,6 +185,9 @@ then human steps 3.3 and 4.
   line is `.gitlab-ci.yml:644` between those two writes. Our APK carries
   `~~D8` and no `~~R8`, and that assignment exits 1 under the job's
   `-o pipefail`.
+- MR review (!49349) asked for R8. Enabled after v3 (`-dontobfuscate`,
+  see notes/release.md); the recipe's `check apk` should go green once
+  it builds a tag that includes the change.
 - Remaining: **HUMAN** — open the MR (step 3.3), then step 4.
 
 ## Step 1 — repo hygiene fixes (agent, in this repo)

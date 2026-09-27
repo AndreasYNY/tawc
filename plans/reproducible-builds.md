@@ -173,6 +173,5 @@ that the binary corresponds to the tagged source.
 
 - Reproducing on arbitrary dev machines (would need the path-remap
   plumbing this plan deliberately avoids).
-- Stripping/minifying release builds. Unstripped debug info is fine
-  when the build path is fixed; notes/release.md's debuggability
-  trade-off stands.
+- Stripping native libs. Unstripped debug info is fine when the build
+  path is fixed (R8 now runs on dex; see notes/release.md).
