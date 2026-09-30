@@ -76,6 +76,57 @@ Triple buffering, vsync-style frame throttling, damage forwarding,
 resize, and swap-interval handling all come from upstream libhybris —
 we don't reimplement any of it.
 
+### Clients must resolve EGL through the wrapper, not Android's
+
+Step 1 is the part that is easy to get wrong on the libhybris side.
+`eglGetProcAddress` only returns libhybris's own wrapper for names in
+`_eglHybrisOverrideFunctions`; everything else falls through to `dlsym`
+on the *native* Android `libEGL`. A client that resolves entry points by
+proc-address (rather than by direct linkage) therefore talks to Android
+EGL directly and never sees the `EGL_KHR_platform_wayland` /
+`EGL_EXT_platform_wayland` extensions that the wrapper exists to
+advertise — it just concludes "no suitable EGL platform" and fails.
+
+So there are two requirements on the libhybris side, and **neither is
+satisfied in the pinned version today**:
+
+- every function libhybris wraps has to appear in that override table,
+  or proc-address lookup hands the client Android's implementation
+  instead of the wrapper's; and
+- the extension string the wrapper builds has to be well-formed.
+  Clients commonly parse it as `split(' ')`, so a doubled space from
+  concatenating onto Android's already-trailing-space string shows up as
+  an extension literally named `""`.
+
+This bites any nested Wayland compositor that resolves EGL by
+proc-address rather than by direct linkage, and the failure is a bare
+`Egl(DisplayNotSupported)` with nothing pointing at the cause. A fix
+belongs in the libhybris fork (`deps/libhybris`), which means a fork
+commit plus a `deps/deps.list` pin bump — it cannot be fixed from this
+repo. Until that lands, verify a client against the extension list it
+actually sees rather than assuming the wrapper advertised it.
+
+### Nested compositors need `libwayland-client` preloaded
+
+The wayland EGL platform plugin links `libhybris-platformcommon.so.1`,
+which has undefined references to the `wl_*_interface` globals from
+libwayland-client. A normal Wayland *client* has libwayland-client loaded
+already, so this never shows up. A *server* — a nested compositor, which
+links Smithay's wayland-server — does not, and `dlopen`ing the plugin
+then fails:
+
+```
+ERROR: /usr/lib/hybris/libhybris//eglplatform_wayland.so
+	/usr/lib/hybris/libhybris-platformcommon.so.1: undefined symbol: wl_buffer_interface
+```
+
+Launch such a client with `LD_PRELOAD=/usr/lib/libwayland-client.so.0`
+and it comes up. Verified with **niri** 26.04 nested inside a session:
+EGL then selects `PLATFORM_WAYLAND_KHR`, and the GL renderer comes up as
+`Adreno (TM) 640` / `Qualcomm` with `hardware_accelerated: true`, using
+`EGL_HYBRIS_native_buffer2` / `EGL_WL_create_wayland_buffer_from_image`
+(i.e. AHB, not a software fallback).
+
 ## Why GL shims still exist
 
 Without the shims, when an app dlopens `libGL.so` / `libGLESv2.so` by
@@ -101,6 +152,23 @@ host-side by `scripts/build-libhybris.sh`; ship as part of the
 APK's `libhybris/<abi>.tar` asset, extracted at runtime, and exposed
 in the rootfs at `/usr/lib/hybris/gl-shims/` (real file copy via
 `TawcInstaller`/`LibhybrisInstallProvider`).
+
+Check the `DT_NEEDED` before blaming a compositor. It is easy to lose
+silently: the shims reference no symbol from the real GLES library at
+link time (everything is `dlsym`'d at runtime), so GNU ld's default
+`--as-needed` drops the library and records nothing.
+`--as-needed`/`--no-as-needed` are *positional*, so a
+`-Wl,--no-as-needed` written after the `-l:` it is meant to apply to
+does nothing at all. With the `DT_NEEDED` missing, `dlopen` still
+succeeds and the `glX*` stubs still resolve, but every `gl*` symbol
+comes back NULL — so a client that looks healthy at load time silently
+loses hardware rendering, and Firefox dies outright because WebRender
+treats a NULL `glGetString` as fatal (`gGLGetString: not found` →
+`mozalloc_abort` → SIGSEGV).
+
+Note that a `readelf -Ws` "does it export `glGetString`" check would be
+the wrong test, since the shims intentionally do not re-export the GLES
+symbols; assert the `DT_NEEDED` on the real library instead.
 
 If we ever switch back on `--enable-glvnd` in libhybris and arrange
 for libglvnd to be present *without* Mesa (or with Mesa neutered),
