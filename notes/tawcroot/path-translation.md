@@ -879,22 +879,45 @@ Two mechanisms in `tawcroot_path_translate` (path.c) close it, keyed
 off `tawcroot_proc_magic_link_classify` (proc_shadow.c), which shares
 the pid/`task/<tid>/` grammar with the shadow classifiers:
 
-- **Own root is rewritten, not refused.** `/proc/self/root/X` means
-  `/X` to a chroot'd process, so the remainder is re-translated
-  against the current root view — which is both kernel-faithful and
-  in-view by construction. A bounded loop (each pass strictly
-  shortens the path, so nesting unwinds); exhausting the bound is
-  `-ELOOP`, never a fall-through to the kernel. `chroot(2)`
-  emulation composes: the rewrite targets whatever the current root
-  is.
-- **Everything else resolves, then contains.** `readlink` exactly
-  the link prefix, join the resolve-through remainder,
-  `tawcroot_host_path_to_guest_abs` the result; out of view is
-  `-ENOENT` — what the guest should believe about a path its world
-  doesn't contain. A target that isn't an absolute path
-  (`pipe:[…]`, `socket:[…]`, `anon_inode:…`) is nothing to contain
-  and passes; so does an unreadable link, which keeps the kernel's
-  own errno.
+- **A process we can see has its root rewritten, not refused.**
+  `/proc/self/root/X` — and `/proc/<n>/root/X` for any other `n` the
+  guest can see — means `/X` to a chroot'd process, so the remainder is
+  re-translated against the current root view, which is both
+  kernel-faithful and in-view by construction. A bounded loop (each pass
+  strictly shortens the path, so nesting unwinds); exhausting the bound
+  is `-ELOOP`, never a fall-through to the kernel. `chroot(2)` emulation
+  composes: the rewrite targets whatever the current root is.
+
+  "Can see" is the whole test, and it costs one `/proc/<n>/status` read
+  (`root_link_is_ours`, proc_shadow.c). Android hands an untrusted app a
+  procfs holding only that app's own processes — the guest cannot even
+  `stat` `/proc/1` — so a *readable* `/proc/<n>/status` already means
+  "sibling in this session". A pid we may not read stays contained.
+  This widens the guest's **lie** about its own processes, not its
+  **reach**: the rewrite lands in the guest root, so a host path named
+  through the link still misses.
+
+  It has to cover siblings, not just `self`, or the guest's model of its
+  own processes is true of exactly one of them. PipeWire's
+  `module-access` probes every client for Flatpak confinement by opening
+  `/proc/<client-pid>/root` and then `openat`-ing `.flatpak-info` on the
+  result, and those two failures are **not** equivalent: a failed
+  *directory* open is a hard error that returns without setting the
+  client's `permissions`, parking it busy forever, whereas a missing
+  `.flatpak-info` is the ordinary "not flatpak" answer that resolves it.
+  With sibling roots contained, every PipeWire client hung on connect
+  (2026-09-30, Arch Linux ARM on a physical device: `pw-cli ls Node`
+  timed out at `rc=124`, no client-side error, one
+  `flatpak check failed: No such file or directory` per connection in the
+  daemon log), taking the whole audio stack with it. There is no
+  PipeWire-side workaround — see notes/android.md ("Audio").
+- **Everything else resolves, then contains.** `cwd`, and any process we
+  may not inspect: `readlink` exactly the link prefix, join the
+  resolve-through remainder, `tawcroot_host_path_to_guest_abs` the
+  result; out of view is `-ENOENT` — what the guest should believe about
+  a path its world doesn't contain. A target that isn't an absolute path
+  (`pipe:[…]`, `socket:[…]`, `anon_inode:…`) is nothing to contain and
+  passes; so does an unreadable link, which keeps the kernel's own errno.
 
 Both only fire when the operation acts on what the link *points at*:
 the path resolves through the link, or the mode follows the leaf.

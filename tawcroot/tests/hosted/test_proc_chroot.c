@@ -675,8 +675,14 @@ test(hosted_proc_magic_link_classify)
 	tawcroot_proc_magic_link_classify(own, &k);
 	test_int_eq(k, TAWCROOT_PROC_MAGIC_ROOT_OWN);
 
-	/* Another process's root, and any cwd: contained. */
+	/* A sibling we can see is rewritten like our own: tawcroot never
+	 * chroots, so every process the guest can see shares the one rootfs
+	 * it already reaches through /proc/self/root. Only a pid OUTSIDE the
+	 * guest's /proc view stays contained -- and any cwd, which names a
+	 * directory rather than the root and is left alone. */
 	tawcroot_proc_magic_link_classify("1/root", &k);
+	test_int_eq(k, TAWCROOT_PROC_MAGIC_ROOT_OWN);
+	tawcroot_proc_magic_link_classify("2147483646/root", &k);  /* no such pid */
 	test_int_eq(k, TAWCROOT_PROC_MAGIC_CONTAIN);
 	tawcroot_proc_magic_link_classify("self/cwd", &k);
 	test_int_eq(k, TAWCROOT_PROC_MAGIC_CONTAIN);
@@ -803,7 +809,7 @@ test(hosted_proc_self_root_bare_link)
 	th_teardown(&v);
 }
 
-test(hosted_proc_other_pid_root_contained)
+test(hosted_proc_other_pid_root_rewritten)
 {
 	th_view v;
 	th_setup(&v, "proc-otherroot");
@@ -816,36 +822,47 @@ test(hosted_proc_other_pid_root_contained)
 		_exit(0);
 	}
 
-	/* The child's root is the HOST root, and it is not ours, so the
-	 * link is resolved and contained rather than rewritten. Naming a
-	 * host file outside the view through it must miss. */
+	char link[64], p[4400], esc[4400];
+	snprintf(link, sizeof link, "/proc/%d/root", (int)child);
+
+	/* A visible sibling is treated exactly like our own process: the
+	 * root link is rewritten to the guest root. tawcroot never chroots,
+	 * so the kernel would hand back "/" -- the HOST root -- whereas the
+	 * guest's model of a process it can see is the same rootfs it
+	 * already reaches through /proc/self/root. FOLLOW must land on the
+	 * guest root inode. */
+	struct stat via_link, guest_root;
+	test_int_eq(th_sys(TAWC_SYS_fstatat, AT_FDCWD, link, &via_link, 0, 0, 0), 0);
+	test_int_eq(stat(v.root, &guest_root), 0);
+	test_true(via_link.st_dev == guest_root.st_dev);
+	test_true(via_link.st_ino == guest_root.st_ino);
+
+	/* ...and a GUEST path through it resolves, same as self. This is
+	 * the case that used to miss: a guest daemon inspecting a peer (the
+	 * shape PipeWire's module-access uses to probe /proc/<peer>/root)
+	 * had no way to name anything through the link. */
+	snprintf(p, sizeof p, "/proc/%d/root/etc/probe", (int)child);
+	long fd = th_sys(TAWC_SYS_openat, AT_FDCWD, p, O_RDONLY, 0, 0, 0);
+	test_true(fd >= 0);
+	test_int_eq(close((int)fd), 0);
+
+	/* Widening the LIE is not widening the reach. A HOST path named
+	 * through the link is still unreachable: the rewrite lands in the
+	 * guest root, where that name doesn't exist. */
 	char host_out[4300];
 	snprintf(host_out, sizeof host_out, "%s-outside", v.root);
 	test_true(rh_write_text(host_out, "from-host\n"));
-
-	char esc[4400];
 	snprintf(esc, sizeof esc, "/proc/%d/root%s", (int)child, host_out);
 	test_int_eq(th_sys(TAWC_SYS_openat, AT_FDCWD, esc, O_RDONLY, 0, 0, 0),
 		    TAWC_ENOENT);
 	test_int_eq(unlink(host_out), 0);
 
-	/* But a host path that IS in view stays reachable, deliberately:
-	 * containment asks "can the guest name this?", and the rootfs's own
-	 * host path names the guest's /etc/probe. It is an alias for an
-	 * inode the guest already has, not an escape. */
-	snprintf(esc, sizeof esc, "/proc/%d/root%s/etc/probe", (int)child,
-		 v.root);
-	long alias = th_sys(TAWC_SYS_openat, AT_FDCWD, esc, O_RDONLY, 0, 0, 0);
-	test_true(alias >= 0);
-	test_int_eq(close((int)alias), 0);
-
-	/* Reading the bare link is unchanged — cross-process /proc stays
+	/* Reading the bare link is unchanged -- readlink stays
 	 * kernel-verbatim (notes/tawcroot/status.md "Known gaps"). */
-	char link[64], buf[64] = {0};
-	snprintf(link, sizeof link, "/proc/%d/root", (int)child);
+	char lbuf[64] = {0};
 	test_int_eq(th_sys(TAWC_SYS_readlinkat, AT_FDCWD, link,
-			   buf, sizeof buf - 1, 0, 0), 1);
-	test_str_eq(buf, "/");
+			   lbuf, sizeof lbuf - 1, 0, 0), 1);
+	test_str_eq(lbuf, "/");
 
 	test_int_eq(kill(child, SIGKILL), 0);
 	test_int_eq(waitpid(child, NULL, 0), child);

@@ -33,20 +33,13 @@ int tawcroot_could_be_proc_relative(const char *p)
 }
 
 
-/* Return 1 iff `n` names our process: either our TGID (== getpid()) or
- * a TID belonging to it. Validation reads `/proc/<n>/status` and checks
- * the `Tgid:` line. Unknown / non-existent / cross-process TIDs return 0.
- *
- * Not cached: only the /proc/<n>/<x> path-classification call sites
- * reach here, and the common case (n == TGID) short-circuits without
- * any syscall. Per-thread crash dumpers walking every TID is the worst
- * case; if it ever shows up as hot we can stick a small MRU here. */
-static int is_my_tid(long n)
+/* Read `Tgid:` out of `/proc/<n>/status`, or 0 when the file is
+ * unreadable or carries no Tgid line: a pid that doesn't exist, one we
+ * may not inspect, or one that exited between the grammar match and
+ * here. Shared by the ownership tests below so a single read answers
+ * both "is it us" and "can the guest see it at all". */
+static long proc_tgid(long n)
 {
-	if (n <= 0 || n > 0x7fffffff) return 0;
-	long mypid = TAWC_RAW(TAWC_SYS_getpid, 0, 0, 0, 0, 0, 0);
-	if (n == mypid) return 1;
-
 	char path[64];
 	size_t pos = 0;
 	if (tawc_str_append(path, sizeof path, &pos, "/proc/") ||
@@ -79,12 +72,51 @@ static int is_my_tid(long n)
 				parsed = parsed * 10 + (*p - '0');
 				p++;
 			}
-			return parsed == mypid;
+			return parsed;
 		}
 		while (*p && *p != '\n') p++;
 		if (*p == '\n') p++;
 	}
 	return 0;
+}
+
+/* Return 1 iff `n` names our process: either our TGID (== getpid()) or
+ * a TID belonging to it. Validation reads `/proc/<n>/status` and checks
+ * the `Tgid:` line. Unknown / non-existent / cross-process TIDs return 0.
+ *
+ * Not cached: only the /proc/<n>/<x> path-classification call sites
+ * reach here, and the common case (n == TGID) short-circuits without
+ * any syscall. Per-thread crash dumpers walking every TID is the worst
+ * case; if it ever shows up as hot we can stick a small MRU here. */
+static int is_my_tid(long n)
+{
+	if (n <= 0 || n > 0x7fffffff) return 0;
+	long mypid = TAWC_RAW(TAWC_SYS_getpid, 0, 0, 0, 0, 0, 0);
+	if (n == mypid) return 1;
+	return proc_tgid(n) == mypid;
+}
+
+/* May `/proc/<n>/root` be rewritten to the guest root? True for our own
+ * process and for any other process the guest can see in its /proc view.
+ *
+ * Android hands an untrusted app a procfs holding only that app's own
+ * processes -- which is why the guest cannot see /proc/1 at all -- so a
+ * readable `/proc/<n>/status` doubles as the session-membership test.
+ * We never chroot, so every guest process's kernel root is the host `/`
+ * while the guest's model of all of them is the one rootfs it already
+ * sees for /proc/self/root. Rewriting is what makes that model true
+ * instead of a special case for `self`.
+ *
+ * This widens the LIE, not the reach: the rewrite hands back the GUEST
+ * root, never the host's, so a false positive costs only a path the
+ * guest already owns. A pid we may not read (another app's process, or
+ * one that exited between the grammar match and here) stays CONTAIN. */
+static int root_link_is_ours(long tid)
+{
+	if (tid < 0) return 1;		/* the literal /proc/self/root */
+	if (tid <= 0 || tid > 0x7fffffff) return 0;
+	if (is_my_tid(tid)) return 1;
+	return proc_tgid(tid) > 0;
 }
 
 /* If `path` is "/proc/self/<x>", "/proc/thread-self/<x>" or
@@ -209,8 +241,9 @@ static size_t magic_link_prefix(const char *suf, int *kind)
 	} else if (tail[0] == 'r' && tail[1] == 'o' && tail[2] == 'o' &&
 		   tail[3] == 't' && (tail[4] == 0 || tail[4] == '/')) {
 		if (kind)
-			*kind = resolve_mine(tid) ? TAWCROOT_PROC_MAGIC_ROOT_OWN
-						  : TAWCROOT_PROC_MAGIC_CONTAIN;
+			*kind = root_link_is_ours(tid)
+					? TAWCROOT_PROC_MAGIC_ROOT_OWN
+					: TAWCROOT_PROC_MAGIC_CONTAIN;
 		return (size_t)(tail + 4 - suf);
 	} else {
 		return 0;

@@ -120,11 +120,17 @@ size_t tawcroot_proc_magic_link_prefix(const char *suf);
  *             the same line dirfd resolution draws for out-of-view
  *             dirfds. Also what keeps /dev/stdin and /dev/fd/<n> (pipes,
  *             sockets, process substitution) working.
- *   ROOT_OWN  our own root. The kernel resolves it to the HOST root
+ *   ROOT_OWN  a root link naming a process the guest can SEE (our own, or
+ *             a sibling): the kernel resolves it to the HOST root
  *             (tawcroot never chroots), where a real chroot would give
- *             the guest's root — so it is rewritten, not refused.
- *   CONTAIN   everything else (cwd, any other process's link): resolve
- *             through the kernel, then require the target to be in view.
+ *             the guest's root — so it is rewritten, not refused. Widens
+ *             the guest's lie about its own processes, never its reach:
+ *             the rewrite lands in the guest root, so a host path named
+ *             through the link still misses. A pid outside the guest's
+ *             /proc view falls through to CONTAIN.
+ *   CONTAIN   everything else (cwd, any process we may not inspect):
+ *             resolve through the kernel, then require the target to be
+ *             in view.
  *
  * Costs one /proc/<n>/status read for a numeric pid that isn't ours,
  * and only after the grammar has matched. */

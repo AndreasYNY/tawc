@@ -424,9 +424,10 @@ covered by unit/hosted/smoke tests.)
   kernel in two directions.** Resolving *through* a link — `root`,
   `cwd`, and any other process's `fd`/`map_files` — to a target
   outside the view is `-ENOENT` where the kernel would hand over the
-  host inode; and our own `root` link resolves to the *guest's* root
-  (what a real chroot answers) rather than the host root the kernel
-  would give a process that never chrooted. Both are deliberate: see
+  host inode; and a `root` link naming any process the guest can see
+  resolves to the *guest's* root (what a real chroot answers) rather
+  than the host root the kernel would give a process that never
+  chrooted. Both are deliberate: see
   notes/tawcroot/path-translation.md §"`/proc` magic-link
   containment" for the rules, the own-fd carve-out, and the residues.
   This is the `..`-fold containment argument above finally being
