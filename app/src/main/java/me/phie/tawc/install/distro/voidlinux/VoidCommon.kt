@@ -269,6 +269,7 @@ internal object VoidCommon {
         method: InstallationMethod,
         rootfs: String,
         packages: List<String>,
+        optional: List<String> = emptyList(),
         log: (String) -> Unit,
     ) {
         val res = method.runInside(
@@ -287,12 +288,51 @@ internal object VoidCommon {
         if (!res.ok) {
             throw IOException("xbps base-package install failed (exit=${res.exitCode})")
         }
+        installOptionalPackages(method, rootfs, optional, log)
+    }
+
+    /**
+     * Best-effort second pass, isolated so one unavailable package costs
+     * the feature rather than the install.
+     */
+    private fun installOptionalPackages(
+        method: InstallationMethod,
+        rootfs: String,
+        optional: List<String>,
+        log: (String) -> Unit,
+    ) {
+        if (optional.isEmpty()) return
+        val res = method.runInside(
+            rootfs,
+            """
+            export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+            xbps-install -uy ${optional.joinToString(" ")}
+            """.trimIndent(),
+            onLine = filteringLog(log),
+        )
+        if (!res.ok) {
+            log("xbps: optional packages unavailable (exit=${res.exitCode}); feature disabled")
+        }
     }
 
     // inetutils-hostname provides `hostname` (Void splits inetutils
     // into per-tool subpackages); without it shell hooks fall back to
     // `hostnamectl`, which errors in our systemd-less rootfs.
     val DEFAULT_BASE_PACKAGES: List<String> = listOf("inetutils-hostname")
+
+    /**
+     * Guest audio stack. Same set and same reasoning as
+     * ArchPacmanCommon.AUDIO_PACKAGES -- `pipewire-alsa` is the one that
+     * carries cubeb clients (Firefox) while Pulse is unavailable. See
+     * notes/android.md ("Audio").
+     */
+    val AUDIO_PACKAGES: List<String> = listOf(
+        "pipewire",
+        "wireplumber",
+        "pipewire-pulse",
+        "pipewire-alsa",
+        "alsa-utils",
+    )
 
     /**
      * Wrap [log] to drop xbps's per-package noise. xbps writes

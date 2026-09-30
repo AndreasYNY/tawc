@@ -47,6 +47,14 @@ internal object ArchLinuxX86_64 : Distro {
 
     override val basePackages: List<String> = ArchPacmanCommon.DEFAULT_BASE_PACKAGES
 
+    /**
+     * Guest audio; see notes/android.md ("Audio") and
+     * me.phie.tawc.install.AudioDefaults. Best-effort -- a distro
+     * that can't provide these installs fine, just silently.
+     * See [Distro.optionalPackages].
+     */
+    override val optionalPackages: List<String> = ArchPacmanCommon.AUDIO_PACKAGES
+
     private const val MIRROR_LIST =
         "Server = https://geo.mirror.pkgbuild.com/\$repo/os/\$arch"
 
@@ -83,5 +91,7 @@ internal object ArchLinuxX86_64 : Distro {
         )
 
     override fun installBasePackages(method: InstallationMethod, rootfs: String, log: (String) -> Unit) =
-        ArchPacmanCommon.installBasePackages(method, rootfs, basePackages, log)
+        ArchPacmanCommon.installBasePackages(
+            method, rootfs, basePackages, optionalPackages, log,
+        )
 }

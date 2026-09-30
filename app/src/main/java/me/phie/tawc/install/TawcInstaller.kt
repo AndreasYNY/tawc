@@ -60,6 +60,7 @@ internal object TawcInstaller {
         AndoInstallProvider,
         SftpServerInstallProvider,
         ShellDefaultsInstallProvider,
+        AudioInstallProvider,
     )
 
     /**

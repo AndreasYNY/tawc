@@ -540,6 +540,7 @@ PACMAN_EOF
         method: InstallationMethod,
         rootfs: String,
         packages: List<String>,
+        optional: List<String> = emptyList(),
         log: (String) -> Unit,
     ) {
         val res = method.runInside(
@@ -554,6 +555,34 @@ PACMAN_EOF
         if (!res.ok) {
             throw IOException("pacman -Syyu --needed install failed (exit=${res.exitCode})")
         }
+        installOptionalPackages(method, rootfs, optional, log)
+    }
+
+    /**
+     * Best-effort second pass, deliberately a *separate* invocation.
+     *
+     * It can't share the `set -e` block above: one unavailable package
+     * would abort the script mid-transaction. Isolated, the worst case is
+     * that the feature is missing and the install still succeeds.
+     */
+    private fun installOptionalPackages(
+        method: InstallationMethod,
+        rootfs: String,
+        optional: List<String>,
+        log: (String) -> Unit,
+    ) {
+        if (optional.isEmpty()) return
+        val res = method.runInside(
+            rootfs,
+            """
+            export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+            pacman -S --needed --noconfirm ${optional.joinToString(" ")}
+            """.trimIndent(),
+            onLine = { log("pacman (optional): $it") },
+        )
+        if (!res.ok) {
+            log("pacman: optional packages unavailable (exit=${res.exitCode}); feature disabled")
+        }
     }
 
     /**
@@ -565,4 +594,26 @@ PACMAN_EOF
      * `scripts/run-integration-tests.sh`.
      */
     val DEFAULT_BASE_PACKAGES: List<String> = listOf("inetutils")
+
+    /**
+     * Guest audio stack (see notes/android.md "Audio").
+     *
+     * `pipewire` is the graph, `wireplumber` the session manager that
+     * elects a default sink, and `pipewire-alsa` the piece that actually
+     * matters day to day: with Pulse unavailable (see
+     * issues/pipewire-pulse-drops-client-immediately.md) it is what routes
+     * Firefox and every other cubeb client into the graph. `alsa-utils`
+     * gives the guest `aplay`/`speaker-test` for debugging, matching what
+     * an ordinary desktop has installed.
+     *
+     * `pipewire-pulse` is still pulled in so a working Pulse server can be
+     * had without a second package transaction.
+     */
+    val AUDIO_PACKAGES: List<String> = listOf(
+        "pipewire",
+        "wireplumber",
+        "pipewire-pulse",
+        "pipewire-alsa",
+        "alsa-utils",
+    )
 }

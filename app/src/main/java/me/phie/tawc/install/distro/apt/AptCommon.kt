@@ -136,6 +136,7 @@ internal object AptCommon {
         method: InstallationMethod,
         rootfs: String,
         packages: List<String>,
+        optional: List<String> = emptyList(),
         log: (String) -> Unit,
     ) {
         val res = method.runInside(
@@ -154,6 +155,33 @@ internal object AptCommon {
         if (!res.ok) {
             throw IOException("apt base-package install failed (exit=${res.exitCode})")
         }
+        installOptionalPackages(method, rootfs, optional, log)
+    }
+
+    /**
+     * Best-effort second pass, in its own invocation so one unavailable
+     * package can't abort the transaction (and so apt isn't left with a
+     * half-configured state). A failure here only costs the feature.
+     */
+    private fun installOptionalPackages(
+        method: InstallationMethod,
+        rootfs: String,
+        optional: List<String>,
+        log: (String) -> Unit,
+    ) {
+        if (optional.isEmpty()) return
+        val res = method.runInside(
+            rootfs,
+            """
+            export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get -y install --no-install-recommends ${optional.joinToString(" ")}
+            """.trimIndent(),
+            onLine = filteringLog(log),
+        )
+        if (!res.ok) {
+            log("apt: optional packages unavailable (exit=${res.exitCode}); feature disabled")
+        }
     }
 
     private fun filteringLog(log: (String) -> Unit): (String) -> Unit = { line ->
@@ -165,4 +193,19 @@ internal object AptCommon {
             trimmed.matches(Regex("""^\d+% \[.*"""))
         if (!drop) log("apt: $line")
     }
+
+    /**
+     * Guest audio stack. Same set and same reasoning as
+     * ArchPacmanCommon.AUDIO_PACKAGES -- `pipewire-alsa` is the one that
+     * carries cubeb clients (Firefox) while Pulse is unavailable. See
+     * notes/android.md ("Audio").
+     */
+    val AUDIO_PACKAGES: List<String> = listOf(
+        "pipewire",
+        "wireplumber",
+        "pipewire-pulse",
+        "pipewire-alsa",
+        "alsa-utils",
+    )
+
 }

@@ -75,6 +75,14 @@ internal sealed class DebianSid(
 
     final override val basePackages: List<String> = AptCommon.DEFAULT_BASE_PACKAGES
 
+    /**
+     * Guest audio; see notes/android.md ("Audio") and
+     * me.phie.tawc.install.AudioDefaults. Best-effort -- a distro
+     * that can't provide these installs fine, just silently.
+     * See [Distro.optionalPackages].
+     */
+    final override val optionalPackages: List<String> = AptCommon.AUDIO_PACKAGES
+
     final override fun configure(
         method: InstallationMethod,
         rootfs: String,
@@ -94,7 +102,9 @@ internal sealed class DebianSid(
         AptCommon.initPackageManager(method, rootfs, log)
 
     final override fun installBasePackages(method: InstallationMethod, rootfs: String, log: (String) -> Unit) =
-        AptCommon.installBasePackages(method, rootfs, basePackages, log)
+        AptCommon.installBasePackages(
+            method, rootfs, basePackages, optionalPackages, log,
+        )
 
     companion object {
         private const val SUITE = "sid"

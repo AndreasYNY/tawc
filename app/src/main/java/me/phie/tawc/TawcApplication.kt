@@ -2,6 +2,7 @@ package me.phie.tawc
 
 import android.app.Application
 import android.util.Log
+import me.phie.tawc.audio.TawcAudioBridge
 import me.phie.tawc.compositor.CompositorService
 import me.phie.tawc.install.BootstrapCache
 import me.phie.tawc.install.InstallationStore
@@ -26,6 +27,14 @@ import kotlin.concurrent.thread
  * persistent to refresh here.
  */
 class TawcApplication : Application() {
+    /**
+     * Guest PCM -> AudioTrack. Started on the startup thread and never
+     * explicitly stopped: an Application has no onDestroy, and the
+     * process outliving it isn't possible. The FIFO it owns is reused
+     * across restarts, so a leftover endpoint is harmless.
+     */
+    private var audioBridge: TawcAudioBridge? = null
+
     override fun onCreate() {
         super.onCreate()
         // Bind the SharedPreferences instance early so non-Activity
@@ -62,6 +71,22 @@ class TawcApplication : Application() {
             } catch (t: Throwable) {
                 Log.w(TAG, "ando broker start failed", t)
             }
+            // Playback bridge for the guest's PipeWire stack: PCM the
+            // rootfs writes to /usr/share/tawc/audio-out-0 into an
+            // AudioTrack. Process-scoped deliberately -- guests are this
+            // process's children, so "app process alive" is exactly when
+            // something can be playing, and neither CompositorService nor
+            // SessionService covers that (a terminal tab runs with
+            // neither bound). The endpoint is a FIFO in share/, which
+            // every install method already binds to /usr/share/tawc, so
+            // the guest opens the very same inode rather than a copy.
+            // See notes/android.md ("Audio") and plans/audio.md.
+            try {
+                audioBridge = TawcAudioBridge(AppPaths.from(this).shareDir)
+                    .also { it.start() }
+            } catch (t: Throwable) {
+                Log.w(TAG, "audio bridge start failed", t)
+            }
             try {
                 val n = BootstrapCache(this).sweepStale()
                 if (n > 0) Log.i(TAG, "Bootstrap cache: evicted $n stale entries")
@@ -78,6 +103,18 @@ class TawcApplication : Application() {
                 TawcInstaller.installAll(this, InstallationStore(this))
             } catch (t: Throwable) {
                 Log.w(TAG, "TawcInstaller.installAll failed", t)
+            }
+            // Guest-side audio daemons. Last, and deliberately so: the
+            // starter script is one of the files TawcInstaller just wrote
+            // (running earlier skips it for a beat on the first start
+            // after an upgrade), and TawcAudioBridge.start above must
+            // already have mkfifo'd the endpoint -- pipe-tunnel opens that
+            // path when the module initialises, so a pipewire that wins
+            // the race leaves the sink broken for the life of the process.
+            try {
+                GuestAudio.start(this)
+            } catch (t: Throwable) {
+                Log.w(TAG, "guest audio start failed", t)
             }
             // Age-sweep every install's flash-backed /tmp (no init in
             // the rootfs means nothing else ever clears it). See

@@ -58,6 +58,14 @@ internal sealed class VoidLinux(
 
     final override val basePackages: List<String> = VoidCommon.DEFAULT_BASE_PACKAGES
 
+    /**
+     * Guest audio; see notes/android.md ("Audio") and
+     * me.phie.tawc.install.AudioDefaults. Best-effort -- a distro
+     * that can't provide these installs fine, just silently.
+     * See [Distro.optionalPackages].
+     */
+    final override val optionalPackages: List<String> = VoidCommon.AUDIO_PACKAGES
+
     final override fun configure(
         method: InstallationMethod,
         rootfs: String,
@@ -69,7 +77,9 @@ internal sealed class VoidLinux(
         VoidCommon.initPackageManager(method, rootfs, log)
 
     final override fun installBasePackages(method: InstallationMethod, rootfs: String, log: (String) -> Unit) =
-        VoidCommon.installBasePackages(method, rootfs, basePackages, log)
+        VoidCommon.installBasePackages(
+            method, rootfs, basePackages, optionalPackages, log,
+        )
 }
 
 internal object VoidLinuxX86_64 : VoidLinux(

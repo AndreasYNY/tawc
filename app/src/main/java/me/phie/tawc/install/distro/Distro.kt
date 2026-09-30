@@ -156,6 +156,24 @@ interface Distro {
     val basePackages: List<String>
 
     /**
+     * Packages a *feature* needs, installed after [basePackages] on a
+     * best-effort basis: a failure here is logged and swallowed, never
+     * thrown.
+     *
+     * The distinction is blast radius. [basePackages] failing aborts the
+     * install (something is fundamentally broken), whereas an optional
+     * package missing from one mirror, one distro or one architecture
+     * should cost you that feature and nothing else. Audio is the first
+     * user: without `pipewire` the rootfs still works fine, it just has
+     * no sound, so a distro that can't provide these must still install.
+     *
+     * The feature's own runtime must degrade the same way — see
+     * `tawc-audio-start`, which exits 0 and says so in its log when
+     * `pipewire` is absent.
+     */
+    val optionalPackages: List<String> get() = emptyList()
+
+    /**
      * Write `/etc` configuration into the freshly-extracted [rootfs]:
      * DNS, package-manager config, mirrorlist, profile.d. Runs via
      * [method].runOutside (which is `su` for chroot installs and a
@@ -184,8 +202,8 @@ interface Distro {
     fun initPackageManager(method: InstallationMethod, rootfs: String, log: (String) -> Unit)
 
     /**
-     * Install [basePackages] inside the chroot at [rootfs]. Runs via
-     * [method].runInside.
+     * Install [basePackages] inside the chroot at [rootfs], then
+     * [optionalPackages] best-effort. Runs via [method].runInside.
      */
     fun installBasePackages(method: InstallationMethod, rootfs: String, log: (String) -> Unit)
 }

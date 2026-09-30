@@ -58,6 +58,14 @@ internal object ArchLinuxArm : Distro {
     override val basePackages: List<String> = ArchPacmanCommon.DEFAULT_BASE_PACKAGES
 
     /**
+     * Guest audio; see notes/android.md ("Audio") and
+     * me.phie.tawc.install.AudioDefaults. Best-effort -- a distro
+     * that can't provide these installs fine, just silently.
+     * See [Distro.optionalPackages].
+     */
+    override val optionalPackages: List<String> = ArchPacmanCommon.AUDIO_PACKAGES
+
+    /**
      * ALARM ships a single-Server mirrorlist
      * (`http://mirror.archlinuxarm.org/$arch/$repo`, the geo-IP
      * redirector). With `ParallelDownloads` enabled it's possible (and
@@ -118,5 +126,7 @@ internal object ArchLinuxArm : Distro {
         )
 
     override fun installBasePackages(method: InstallationMethod, rootfs: String, log: (String) -> Unit) =
-        ArchPacmanCommon.installBasePackages(method, rootfs, basePackages, log)
+        ArchPacmanCommon.installBasePackages(
+            method, rootfs, basePackages, optionalPackages, log,
+        )
 }
