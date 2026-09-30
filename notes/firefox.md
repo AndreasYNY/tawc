@@ -4,10 +4,26 @@ Firefox renders via the libhybris Wayland EGL platform against the Adreno
 660 vendor driver. Window chrome goes through AHB; fragments of content can
 fall back to SHM (no `zwp_linux_dmabuf_v1` support yet in this compositor).
 
-**Status (2026-05-19):** Works under tawcroot with **no Firefox-specific
-configuration** — no env vars, no autoconfig `firefox.cfg`, no GPU-process
-prefs. Tested on Arch Linux ARM (Firefox 150.0.1), Void Linux (150.0.2),
-and Manjaro ARM (141.0.3). The
+**Status (2026-05-19, re-checked 2026-09-29):** Renders under tawcroot
+on the libhybris Wayland EGL platform against the Adreno driver, with no
+autoconfig `firefox.cfg` and no GPU-process prefs. But "no
+Firefox-specific configuration" no longer holds: as of 2026-09-29
+`RootfsEnv.kt` sets `MOZ_SHM_NO_SEALS=1` for every install method,
+because Firefox >= 156's `IsSafeToMap` rejects unsealed shared-memory
+handles and every content process SIGSEGVs. Two separate crashes have
+been hit and fixed at that point, and they look similar but are not:
+
+- **Whole process, at startup** — the `/usr/lib/hybris/gl-shims` shims
+  recorded no `DT_NEEDED` on the real GLES library, so `dlsym` for any
+  `gl*` symbol returned NULL and WebRender called `mozalloc_abort`
+  (exit 139). Fixed in `scripts/build-libhybris.sh`; see
+  notes/wsi-layer.md.
+- **Content processes only, on any page** — the shared-memory seal
+  issue below. The parent stays up and the tab shows "Gah. Your tab just
+  crashed".
+
+Tested on Arch Linux ARM (Firefox 150.0.1), Void Linux (150.0.2), and
+Manjaro ARM (141.0.3). The
 `libhybris::test_firefox_renders_via_ahb` integration test
 passes on the OnePlus 9 against all three distros. The earlier "Firefox closed unexpectedly while
 starting" recovery-dialog symptom and the tawcroot-side parent-process
@@ -89,11 +105,25 @@ them too). See notes/tawcroot/bootstrap-and-modules.md "/dev/shm". So
 the parent takes its memfd path, ordinary segments stay real sealed
 memfds, and only freezable ones become files.
 
-proot and chroot have no such workaround. We no longer set
+proot and chroot have no such workaround, and on tawcroot the reopen
+still comes up short often enough to matter, so `RootfsEnv.kt` now sets
 `MOZ_SHM_NO_SEALS=1` (upstream's testing opt-out: all processes skip
-seals) anywhere, so Firefox tabs may crash under those debug methods
-when the reopen is denied; setting it by hand in the guest env is the
-escape hatch.
+seals) for **every** method. Measured on the physical device
+(2026-09-29, Firefox 141, tawcroot, Arch Linux ARM) launching
+`about:blank` and counting the log:
+
+| env | `not safe to map` | `signal 11` | result |
+| --- | --- | --- | --- |
+| unset | 18 | 18 | every tab crashes |
+| `MOZ_SHM_NO_SEALS=1` | 0 | 0 | loads clean |
+
+The parent process stays up either way — the symptom is
+`Gah. Your tab just crashed` / a `Tab crash reporter` tab, not the
+parent dying, so it is easy to mistake for a page problem rather than a
+shared-memory one. Note this is a *different* failure from the
+GL-shim one: a missing `DT_NEEDED` in `/usr/lib/hybris/gl-shims` takes
+the whole process down with SIGSEGV at startup, whereas this one only
+kills content processes.
 
 ### Why GDK_GL=gles:always
 

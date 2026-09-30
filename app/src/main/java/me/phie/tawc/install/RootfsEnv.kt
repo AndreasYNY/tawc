@@ -172,6 +172,16 @@ internal object RootfsEnv {
         // namespaces, setuid helper vs NO_NEW_PRIVS, and it refuses to
         // run as root anyway). Electron reads this as --no-sandbox.
         put("ELECTRON_DISABLE_SANDBOX", "1")
+        // Firefox >= 156 rejects any shared-memory handle without
+        // F_SEAL_SHRINK in SharedMemoryPlatform_posix's IsSafeToMap, and
+        // content processes then die with SIGSEGV ("Gah. Your tab just
+        // crashed", on about:blank too). tawcroot's /dev/shm emulation
+        // can't always hand out a sealed memfd here, so opt every
+        // process out of seals entirely -- upstream's own testing
+        // escape hatch. Measured on the physical device: 18
+        // "not safe to map" + 18 SIGSEGV without it, 0 and 0 with it.
+        // See notes/firefox.md "Memfd read-only reopen".
+        put("MOZ_SHM_NO_SEALS", "1")
         if (method == Method.PROOT) {
             put("MOZ_DISABLE_CONTENT_SANDBOX", "1")
             put("MOZ_DISABLE_GPU_SANDBOX", "1")
