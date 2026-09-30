@@ -49,9 +49,16 @@ const BACKGROUND_COLOR: Color32F = Color32F::new(0.1059, 0.1059, 0.1333, 1.0);
 /// SHM → magenta). Driven by the in-app "Tint buffers based on type"
 /// checkbox via `nativeSetTintBuffersByType`. Read on every frame so a
 /// toggle takes effect on the next paint without restarting any client.
-/// Defaults to `true` so a fresh process matches the historical
-/// behaviour before any setting has been pushed in.
-pub static TINT_BUFFERS_BY_TYPE: AtomicBool = AtomicBool::new(true);
+///
+/// Defaults to `false`. This is a diagnostic, not a look, and it tints
+/// *hardware* buffers as well as SHM ones — so with it on, every window
+/// carries a lime halo and every popup a magenta one, which reads as a
+/// rendering bug rather than as a hint. `BuildConfig
+/// .TINT_BUFFERS_BY_TYPE_DEFAULT` is the user-visible default;
+/// [CompositorService] pushes it at startup. This `false` only covers
+/// the brief window before that push, and keeps the two in agreement
+/// for every build type.
+pub static TINT_BUFFERS_BY_TYPE: AtomicBool = AtomicBool::new(false);
 
 /// Width, as a fraction of the buffer, of the band along each buffer edge
 /// over which the buffer-type tint fades from full strength at the

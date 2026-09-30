@@ -18,7 +18,7 @@ Tess's Android Wayland Compositor (TAWC) is an Android app plus rootfs/build scr
 - Supported distros are **Arch Linux ARM** and **Debian sid** (Arch x86_64 stands in for ALARM on the emulator). Manjaro ARM and Void still ship in every build but are dev-only, behind the install form's "Other distros" expander — see [notes/distro-options.md](notes/distro-options.md).
 - Graphics backends: `libhybris`, `libhybris-zink`, `gfxstream`, and `cpu` ship by default. `libhybris` works on all tested physical devices and is the production/default path. `gfxstream` is experimental/partial; it is the x86_64 emulator default only because libhybris is unsupported there. See [notes/gpu-strategy.md](notes/gpu-strategy.md), [notes/libhybris-zink.md](notes/libhybris-zink.md), and [notes/gfxstream-bridge.md](notes/gfxstream-bridge.md).
 - The debug exec broker is the normal host-to-app command path. Host helper binary: `tests/integration/src/bin/tawc-exec.rs`; wrapper: `scripts/tawc-exec.sh`; protocol notes: [notes/exec-broker.md](notes/exec-broker.md).
-- SHM buffers are intentionally tinted magenta by default to expose fallback paths. Do not remove this unless explicitly asked.
+- The buffer-type debug tint (lime = libhybris AHB, cyan = gfxstream AHB, magenta = SHM) is off by default; it is one tap away in Settings → "Tint buffers based on type". Do not turn it back on by default — it tints hardware buffers too, so it haloes every window.
 
 ## Operating Rules
 - Keep docs compact here. Put durable design/build details in `notes/`; start with [notes/README.md](notes/README.md).

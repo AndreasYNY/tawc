@@ -98,6 +98,14 @@ val xwaylandPackageAbis: List<String> =
     if (xwaylandRequested) tawcAbis.filter { it in xwaylandScriptAbiFor } else emptyList()
 val xwaylandPackaged: Boolean = xwaylandPackageAbis.isNotEmpty()
 
+// Default for the compositor's buffer-type debug tint. Single val so
+// the build types can't drift apart. Off in every build: the tint is a
+// diagnostic, not a look, and it washes hardware buffers lime as well
+// as SHM buffers magenta, so leaving it on puts a coloured halo around
+// every window and popup. Reachable in one tap from Settings →
+// "Tint buffers based on type", which is where it belongs.
+val tintBuffersByTypeDefault = "false"
+
 android {
     namespace = "me.phie.tawc"
     compileSdk = 36
@@ -130,7 +138,7 @@ android {
             buildConfigField("boolean", "GRAPHICS_GFXSTREAM_ENABLED",      "${"gfxstream" in enabledGraphics}")
             buildConfigField("boolean", "GRAPHICS_CPU_ENABLED",            "${"cpu" in enabledGraphics}")
             buildConfigField("boolean", "XWAYLAND_ENABLED", "$xwaylandPackaged")
-            buildConfigField("boolean", "TINT_BUFFERS_BY_TYPE_DEFAULT", "true")
+            buildConfigField("boolean", "TINT_BUFFERS_BY_TYPE_DEFAULT", tintBuffersByTypeDefault)
         }
         getByName("release") {
             manifestPlaceholders["logScreenExported"] = "false"
@@ -154,7 +162,7 @@ android {
             buildConfigField("boolean", "GRAPHICS_GFXSTREAM_ENABLED",      "${"gfxstream" in enabledGraphics}")
             buildConfigField("boolean", "GRAPHICS_CPU_ENABLED",            "${"cpu" in enabledGraphics}")
             buildConfigField("boolean", "XWAYLAND_ENABLED", "$xwaylandPackaged")
-            buildConfigField("boolean", "TINT_BUFFERS_BY_TYPE_DEFAULT", "false")
+            buildConfigField("boolean", "TINT_BUFFERS_BY_TYPE_DEFAULT", tintBuffersByTypeDefault)
         }
     }
 

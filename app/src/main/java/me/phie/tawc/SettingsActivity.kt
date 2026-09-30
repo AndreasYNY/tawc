@@ -65,11 +65,13 @@ class SettingsActivity : AppCompatActivity() {
         distroSlot = FrameLayout(this)
         column.addView(distroSlot, verticalLp(MATCH_PARENT, WRAP_CONTENT, bottomMargin = pad))
         column.addView(buildScaleCard(), verticalLp(MATCH_PARENT, WRAP_CONTENT, bottomMargin = pad))
-        // The magenta SHM tint ships in release on purpose: it's a
-        // supported diagnostic for GPU-fallback issues on user devices,
-        // not a debug-build-only tool. Only the default differs per
-        // build type (BuildConfig.TINT_BUFFERS_BY_TYPE_DEFAULT: on in
-        // debug, off in release).
+        // The buffer-type tint stays available in every build type, but
+        // is off by default (BuildConfig.TINT_BUFFERS_BY_TYPE_DEFAULT,
+        // one shared val). It washes hardware buffers lime as well as
+        // SHM buffers magenta, so on by default it puts a coloured halo
+        // around every window and popup that looks like a rendering
+        // bug. It stays here as a one-tap diagnostic for GPU-fallback
+        // issues rather than a debug-build-only tool.
         column.addView(
             buildSectionCard(getString(R.string.settings_graphics_driver), buildGraphicsSettings()),
             verticalLp(MATCH_PARENT, WRAP_CONTENT, bottomMargin = pad),

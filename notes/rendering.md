@@ -158,12 +158,23 @@ SHM buffers (`wl_shm`) are supported alongside the AHB path. SHM matters even fo
 GPU-accelerated clients because cursor themes, toolkit subsurfaces/popups (GTK3/4), and
 EGL fallback paths all use `wl_shm`.
 
-**Magenta tint:** SHM surfaces are rendered with a distinct magenta tint via a custom
-`GlesTexProgram` shader. This is intentional -- it makes it visually obvious when a client
-falls back to SHM instead of using hardware-accelerated AHB buffers.
+**Buffer-type tint:** surfaces can be washed in a debug colour identifying
+their buffer source (libhybris-AHB -> lime, gfxstream-AHB -> cyan, SHM ->
+magenta) by a custom `GlesTexProgram` shader, so a client falling back to
+SHM instead of hardware AHB is visually obvious.
+
+**It is off by default in every build type**
+(`BuildConfig.TINT_BUFFERS_BY_TYPE_DEFAULT`, one shared val in
+`app/build.gradle.kts`; `TINT_BUFFERS_BY_TYPE` in `compositor/src/render.rs`
+mirrors it for the window before `CompositorService` pushes the setting).
+It is a diagnostic, not a look: it tints *hardware* buffers too, and the
+`TINT_EDGE_FADE` band is anchored at the buffer edges, so on by default
+every window gets a lime halo and every popup a magenta one that reads as
+a rendering bug. Turn it on from Settings -> "Tint buffers based on type",
+which takes effect on the next paint without restarting any client.
 
 The render wrapper detects SHM buffers from Smithay's `buffer_type` metadata
-and applies TAWC's magenta shader policy. AHB buffers are detected from
+and applies the tint policy. AHB buffers are detected from
 `WleglBufferData` attached to the `wl_buffer`.
 
 ## Alpha and Opaque Regions
