@@ -102,6 +102,26 @@ APK's `libhybris/<abi>.tar` asset, extracted at runtime, and exposed
 in the rootfs at `/usr/lib/hybris/gl-shims/` (real file copy via
 `TawcInstaller`/`LibhybrisInstallProvider`).
 
+The forwarding is DT_NEEDED-based and nothing else — the shims define no
+GLES symbols themselves — so losing it is indistinguishable at runtime
+from "the symbol doesn't exist": `dlopen` still succeeds, the `glX*`
+stubs still resolve, and the first real `gl*` call comes back NULL. That
+is what shipped when `-Wl,--no-as-needed` was written *after* the `-l:`
+it was meant to protect: GNU ld's as-needed state is positional, so on a
+toolchain that already defaults to `--as-needed` (Debian/Ubuntu gcc,
+which is what F-Droid's buildserver image uses) the shims ended up with
+no DT_NEEDED at all. `scripts/build-libhybris.sh` now puts the flag
+first and asserts both halves of the contract after linking — the
+DT_NEEDED edge, and that `libGLESv2_hybris.so` exports `glGetString`.
+
+Field check inside a rootfs:
+
+```sh
+readelf -d /usr/lib/hybris/gl-shims/libGLESv2.so.2 | grep NEEDED
+```
+
+must list `libGLESv2_hybris.so` next to `libc.so.6`.
+
 If we ever switch back on `--enable-glvnd` in libhybris and arrange
 for libglvnd to be present *without* Mesa (or with Mesa neutered),
 the shims become unnecessary. Until then they're the lesser evil.

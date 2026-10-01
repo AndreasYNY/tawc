@@ -379,8 +379,11 @@ patchelf --set-soname libGLESv2_hybris.so "$SHIM_DIR/libGLESv2_hybris.so"
 # resolved by dlsym at runtime, not by the linker), so the default
 # --as-needed silently drops it and records no DT_NEEDED at all. The
 # result is a libGLESv2.so.2 that dlopens fine but resolves zero GLES
-# symbols, which Firefox WebRender reports as "gGLGetString: not found"
-# and then aborts on.
+# symbols. GTK/libepoxy prints
+#   glGetString() not found: <shim>: undefined symbol: glGetString
+# and aborts, so every GTK3 program dies with SIGABRT (134); inside
+# Firefox the same abort goes through its abort() override and surfaces
+# as a SIGSEGV (139) from mozalloc_abort.
 "$CC_BIN" -shared -fPIC \
     -o "$SHIM_DIR/libGLESv2.so.2" \
     "$REPO_DIR/deps/libhybris-shims/libglesv2-shim.c" \
@@ -428,9 +431,11 @@ done
 
 # The GLES symbols are deliberately *not* re-exported: glibc's dlsym
 # searches a handle's dependency closure, so the DT_NEEDED is what makes
-# them resolve. That makes DT_NEEDED the thing worth checking — a
-# "does it export glGetString" readelf check would fail on a correct
-# shim and pass on a broken one.
+# them resolve. Checking the *shim* for a GLES export would therefore
+# fail on a correct build, but that leaves two halves to assert: the
+# edge (check_needed, below) and that the library behind it really
+# carries the entry points clients look up through the shim. The edge
+# alone stays green if libhybris ever stops exporting them.
 check_needed() {
     local so="$1"
     local lib="$2"
@@ -445,5 +450,8 @@ check_needed "$SHIM_DIR/libGLESv2.so.2" libGLESv2_hybris.so
 # and a DT_NEEDED records the resolved library's SONAME, not the path used
 # on the command line.
 check_needed "$SHIM_DIR/libGL.so" libGLESv2.so.2
+# The dependency must provide the entry points the shims exist to
+# forward; DT_NEEDED only proves the shims point at it.
+check_glx_export "$SHIM_DIR/libGLESv2_hybris.so" glGetString
 
 echo "==> done. Output in $LIB_DIR"
