@@ -97,9 +97,21 @@ escape hatch.
 
 ### Startup SIGSEGV: shim `DT_NEEDED` (fixed 2026-09-29)
 
-Firefox exiting 139 at startup, with
-`gGLGetString: not found` → `mozalloc_abort` in the log, was a link-flag
-ordering bug in our own build script — not a Firefox or libhybris bug.
+Firefox exiting 139 at startup, with this in the log, was a link-flag
+ordering bug in our own build script — not a Firefox or libhybris bug:
+
+```
+glGetString() not found: /usr/lib/hybris/gl-shims/libGLESv2.so.2: undefined symbol: glGetString
+Redirecting call to abort() to mozalloc_abort
+```
+
+The printer is **libepoxy** (GTK's GL dispatch: `fprintf(stderr, "%s()
+not found: %s\n", name, dlerror()); abort();`), not Firefox's own
+loader, which is why the same defect also takes down every GTK3 program
+— the native file dialog in Code, any `Gtk.FileChooserDialog`,
+`gtk3-demo` — with **SIGABRT (134)**. Firefox only changes the signal:
+its `abort()` override routes the abort through `mozalloc_abort`, which
+crashes with SIGSEGV (139).
 
 The `/usr/lib/hybris/gl-shims` shims resolve every entry point with
 `dlsym` at runtime, so they reference no GLES symbol at link time.
@@ -114,15 +126,18 @@ With the real library unloaded the failure is deceptively quiet:
 process looks healthy until the first real `gl*` call, which comes back
 NULL. Fixed by moving the flag before the `-l:` in
 `scripts/build-libhybris.sh`, which now also asserts the `DT_NEEDED`
-after linking so it cannot regress. Note that a `readelf -Ws` "does it
-export `glGetString`" check would be the wrong test — the shims
-intentionally do not re-export the GLES symbols.
+after linking so it cannot regress, plus that the renamed real library
+behind it exports `glGetString`. Checking the *shim* for that export
+would be the wrong test — the shims intentionally re-export nothing but
+the `glX*` stubs; the dependency is the half that has to carry them.
 
 Worth telling apart from the shared-memory failure above, because the
 symptom looks similar and the fixes are unrelated: this one takes the
-**whole process** down at startup (exit 139, no window at all), whereas
-that one leaves the **parent** running and only kills content processes
-("Gah. Your tab just crashed"). The exit status tells them apart.
+**whole process** down at startup (no window at all), whereas that one
+leaves the **parent** running and only kills content processes ("Gah.
+Your tab just crashed"). The signal only tells them apart *within*
+Firefox (139 vs a healthy parent); a GTK3 program killed by this bug
+also reports 134, so read the message, not the exit status.
 
 ### Why GDK_GL=gles:always
 
